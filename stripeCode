@@ -1,0 +1,71 @@
+const express = require('express');
+const router = express.Router();
+const Invoice = require('../models/invoice');
+const Project = require('../models/project');
+const stripe = require('stripe')('sk_test_51IGubQLvKhZhrH7OdjVDfYdk2bqMoJN0qWOQLmkrOGeJy43EjxUSEFUVd09lpOdswOue37b0LXKx8Jq8LOnBB2EE00rDFfswel');
+
+router.get('/', async (req, res) => {
+  try {
+    const invoices = await Invoice.find().populate('project');
+    res.json({ invoices });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send('Server Error');
+  }
+});
+
+router.post('/', async (req, res) => {
+  try {
+    const { project_id, amount } = req.body;
+    const project = await Project.findById(project_id);
+    const invoice = await Invoice.create(req.body);
+
+    invoice.secret_id = 'inv-' + Math.random().toString(36).substr(2, 9);
+    await invoice.save();
+
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          name: project.name,
+          description: project.description,
+          amount: amount * 100,
+          currency: 'usd',
+          quantity: 1,
+        },
+      ],
+      success_url: `http://10.0.0.33:8000/payment_success/${invoice.secret_id}`,
+      cancel_url: `http://10.0.0.33:8000/payment_failed/${invoice.secret_id}`,
+    });
+
+    invoice.payment_link = session.url;
+    await invoice.save();
+
+    res.json({ message: 'Invoice Created Successfully' });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send('Server Error');
+  }
+});
+
+router.put('/:id', async (req, res) => {
+  try {
+    const invoice = await Invoice.findByIdAndUpdate(req.params.id, req.body);
+    res.json({ message: 'Invoice Updated Successfully' });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send('Server Error');
+  }
+});
+
+router.delete('/:id', async (req, res) => {
+  try {
+    const invoice = await Invoice.findByIdAndDelete(req.params.id);
+    res.json({ message: 'Invoice Deleted Successfully' });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send('Server Error');
+  }
+});
+
+module.exports = router;
